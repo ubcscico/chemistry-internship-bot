@@ -5,6 +5,9 @@ on:
     - cron: '0 14 * * *'  # Runs daily
   workflow_dispatch:      # Allows manual trigger
 
+permissions:
+  contents: write         # Allows the workflow to push cache changes
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -13,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5   # <-- Fixed here
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
