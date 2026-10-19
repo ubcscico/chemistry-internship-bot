@@ -101,10 +101,18 @@ def main():
     # Drop exact duplicate listings based on URL
     combined_jobs = combined_jobs.drop_duplicates(subset=['job_url'])
 
+    # Mandatory keywords: The job title MUST contain at least one of these to be included
+    required_keywords = [
+        "intern", "internship", "interns", 
+        "co-op", "coop", "cooperative", 
+        "student", "placement", "fellow", "fellowship"
+    ]
+
     # Blacklist filters to keep out software, civil engineering, nursing, or clinical roles outside lab science
     blacklist_terms = [
         "software", "full stack", "frontend", "backend", "civil", "structural", 
-        "nursing", "registered nurse", "physician", "accountant", "sales representative"
+        "nursing", "registered nurse", "physician", "accountant", "sales representative",
+        "senior", "manager", "director", "lead"
     ]
 
     for _, row in combined_jobs.iterrows():
@@ -116,6 +124,10 @@ def main():
 
         # Check against blacklist
         if any(bad in title for bad in blacklist_terms):
+            continue
+
+        # Check that the title explicitly contains an internship/co-op/student keyword
+        if not any(req in title for req in required_keywords):
             continue
 
         # Package job info
