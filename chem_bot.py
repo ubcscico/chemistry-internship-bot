@@ -2,6 +2,7 @@ import os
 import json
 import requests
 from jobspy import scrape_jobs
+import pandas as pd
 
 # File to track seen jobs and avoid duplicate Discord alerts
 CACHE_FILE = "seen_chem_jobs.json"
@@ -19,32 +20,22 @@ def save_seen_jobs(seen_jobs):
     with open(CACHE_FILE, "w") as f:
         json.dump(list(seen_jobs), f)
 
-def send_discord_alert(job):
+def send_discord_group(company, jobs_list):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
     if not webhook_url:
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
 
-    # Clean up fields for display
-    title = job.get('title', 'N/A')
-    company = job.get('company', 'N/A')
-    location = job.get('location', 'N/A')
-    job_url = job.get('job_url', 'N/A')
-    site = job.get('site', 'N/A').capitalize()
+    # Build the grouped message matching your engineering format
+    message_lines = [f"🏢 **{company}**"]
+    
+    for job in jobs_list:
+        title = job.get('title', 'N/A')
+        location = job.get('location', 'N/A')
+        job_url = job.get('job_url', 'N/A')
+        message_lines.append(f"• **{title}** ({location})\n  🔗 {job_url}")
 
-    embed = {
-        "title": f"🧪 {title}",
-        "url": job_url,
-        "color": 3066993,  # Teal/Blue-green scientific theme
-        "fields": [
-            {"name": "🏢 Company / Institution", "value": str(company), "inline": True},
-            {"name": "📍 Location", "value": str(location), "inline": True},
-            {"name": "🌐 Source", "value": str(site), "inline": True}
-        ],
-        "footer": {"text": "Chemistry & Life Sciences Internship Bot"}
-    }
-
-    payload = {"embeds": [embed]}
+    payload = {"content": "\n".join(message_lines)}
     response = requests.post(webhook_url, json=payload)
     
     if response.status_code != 204:
@@ -96,7 +87,6 @@ def main():
         print("No jobs found across current search passes.")
         return
 
-    import pandas as pd
     combined_jobs = pd.concat(all_jobs, ignore_index=True)
     # Drop exact duplicate listings based on URL
     combined_jobs = combined_jobs.drop_duplicates(subset=['job_url'])
@@ -115,6 +105,8 @@ def main():
         "senior", "manager", "director", "lead"
     ]
 
+    valid_jobs = []
+
     for _, row in combined_jobs.iterrows():
         job_id = str(row.get('job_url'))
         title = str(row.get('title', '')).lower()
@@ -130,22 +122,32 @@ def main():
         if not any(req in title for req in required_keywords):
             continue
 
-        # Package job info
-        job_data = {
+        valid_jobs.append({
+            'id': job_id,
             'title': row.get('title'),
-            'company': row.get('company'),
-            'location': row.get('location'),
-            'job_url': row.get('job_url'),
-            'site': row.get('site')
-        }
+            'company': row.get('company', 'Unknown Company'),
+            'location': row.get('location', 'N/A'),
+            'job_url': row.get('job_url')
+        })
 
-        print(f"New posting found: {job_data['title']} at {job_data['company']}")
-        send_discord_alert(job_data)
-        seen_jobs.add(job_id)
-        new_jobs_count += 1
+    # Group valid jobs by company
+    company_groups = {}
+    for job in valid_jobs:
+        comp = job['company']
+        if comp not in company_groups:
+            company_groups[comp] = []
+        company_groups[comp].append(job)
+
+    # Send grouped messages per company
+    for company, jobs_list in company_groups.items():
+        print(f"Sending grouped alert for {company} ({len(jobs_list)} roles)...")
+        send_discord_group(company, jobs_list)
+        for job in jobs_list:
+            seen_jobs.add(job['id'])
+            new_jobs_count += 1
 
     save_seen_jobs(seen_jobs)
-    print(f"=== SCRAPING COMPLETE. Sent {new_jobs_count} new alerts. ===")
+    print(f"=== SCRAPING COMPLETE. Sent {new_jobs_count} new alerts across {len(company_groups)} companies. ===")
 
 if __name__ == "__main__":
     main()
