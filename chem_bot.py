@@ -26,14 +26,15 @@ def send_discord_group(company, jobs_list):
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
 
-    # Build the grouped message matching your engineering format
+    # Build clean message matching your exact engineering format with suppressed link previews
     message_lines = [f"🏢 **{company}**"]
     
     for job in jobs_list:
         title = job.get('title', 'N/A')
         location = job.get('location', 'N/A')
         job_url = job.get('job_url', 'N/A')
-        message_lines.append(f"• **{title}** ({location})\n  🔗 {job_url}")
+        # Angle brackets < > around the URL suppress the large preview embed box in Discord
+        message_lines.append(f"• **{title}** ({location})\n  🔗 <{job_url}>")
 
     payload = {"content": "\n".join(message_lines)}
     response = requests.post(webhook_url, json=payload)
@@ -47,21 +48,48 @@ def main():
     seen_jobs = load_seen_jobs()
     new_jobs_count = 0
 
-    # Comprehensive search terms covering chemistry, biochemistry, biotech, microbiology, and research assistant roles
-    search_queries = [
-        "chemistry intern", "chemistry co-op", "analytical chemist intern", 
-        "biochemistry intern", "biochemistry co-op", "biotech intern", 
-        "biotechnology co-op", "microbiology intern", "microbiology co-op", 
-        "research assistant chemistry", "research assistant biology", 
-        "laboratory assistant intern", "formulation intern", "assay development intern"
+    # Core scientific topics and roles
+    base_topics = [
+        "Analyst", "Analytical Chemistry", "Biologist", "Biobanking", 
+        "Bio-Chemist", "Bioinformatics", "Biological", "Biology", 
+        "Biochemistry", "Cancer", "Cell", "Chemical", "Chemistry", 
+        "Clinical", "Clinical Research", "Diagnostics", "Environmental", 
+        "Field", "Formulation", "Geological", "Geoscience", "GIS", 
+        "Healthcare", "High-throughput", "Immunoassay", "Immunology", 
+        "In Vitro", "Lab", "Lab Assistant", "Laboratory", "Lipid", 
+        "Microbiology", "Molecular", "Preclinical", "Protein", "QA", 
+        "QC", "Quality Assurance", "Quality Control", "R&D", 
+        "Research and Development", "Research Assistant", "Research Associate", 
+        "Research Scientist", "RNA", "Technician", "Therapeutics", 
+        "Translational", "Veterinarian Assistant", "Veterinary", 
+        "Chemist", "Biotechnology", "Biotech", "Assay",
+        "Genomics", "Proteomics", "Metabolomics", "Stem Cell", 
+        "Histology", "Pathology", "Virology", "Bacteriology", 
+        "Toxicology", "Pharmacology", "Physiology", "Biomedical", 
+        "Clinical Trials", "Epidemiology", "Public Health", 
+        "Medical Laboratory Science", "Biostatistics", "Conservation", 
+        "Sustainability", "Water Quality", "Soil Science", "Limnology", 
+        "Marine Biology", "Hydrology", "Climate Science", "Environmental Monitoring"
     ]
 
-    # Target locations (Canada hubs + Pacific Northwest / California major centers)
+    # Student opportunity modifiers
+    modifiers = ["intern", "internship", "co-op"]
+
+    # Dynamically build explicit student queries (e.g., "Biochemistry intern", "Genomics co-op")
+    search_queries = []
+    for topic in base_topics:
+        for mod in modifiers:
+            search_queries.append(f"{topic} {mod}")
+
+    # Target locations: All of Canada + Major California hubs
     locations = [
-        "Vancouver, BC", "Victoria, BC", "Kelowna, BC", 
-        "Calgary, AB", "Edmonton, AB", "Winnipeg, MB", 
-        "Markham, ON", "Montreal, QC", "Canada",
-        "Seattle, WA", "Portland, OR", "San Francisco, CA", "San Diego, CA"
+        "Canada",
+        "San Francisco, CA", 
+        "San Diego, CA", 
+        "Los Angeles, CA", 
+        "San Jose, CA", 
+        "Sacramento, CA", 
+        "Irvine, CA"
     ]
 
     all_jobs = []
@@ -74,9 +102,9 @@ def main():
                     site_name=["indeed", "linkedin", "zip_recruiter", "glassdoor"],
                     search_term=query,
                     location=location,
-                    results_wanted=15,
+                    results_wanted=10,  
                     hours_old=72,  # Look at postings from the last 3 days
-                    country_indeed='Canada' if 'Canada' in location or 'BC' in location or 'AB' in location or 'MB' in location or 'ON' in location or 'QC' in location else 'USA'
+                    country_indeed='Canada' if location == 'Canada' else 'USA'
                 )
                 if jobs is not None and not jobs.empty:
                     all_jobs.append(jobs)
@@ -91,14 +119,14 @@ def main():
     # Drop exact duplicate listings based on URL
     combined_jobs = combined_jobs.drop_duplicates(subset=['job_url'])
 
-    # Mandatory keywords: The job title MUST contain at least one of these to be included
+    # Mandatory keywords: The job title MUST contain at least one of these to ensure only student/intern roles pass through
     required_keywords = [
         "intern", "internship", "interns", 
         "co-op", "coop", "cooperative", 
         "student", "placement", "fellow", "fellowship"
     ]
 
-    # Blacklist filters to keep out software, civil engineering, nursing, or clinical roles outside lab science
+    # Blacklist filters to keep out software, civil engineering, nursing, or senior roles
     blacklist_terms = [
         "software", "full stack", "frontend", "backend", "civil", "structural", 
         "nursing", "registered nurse", "physician", "accountant", "sales representative",
