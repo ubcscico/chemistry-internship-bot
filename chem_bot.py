@@ -52,26 +52,40 @@ def send_discord_group(company, jobs_list):
             break
 
 def main():
-    print("=== LIFE SCIENCES & HEALTH RESEARCH BOT INITIALIZED ===")
+    print("=== CANADIAN LIFE, MEDICAL & PHARMA SCIENCES BOT INITIALIZED ===")
     
     seen_jobs = load_seen_jobs()
     new_jobs_count = 0
 
-    # Focused life sciences, health sciences, and scientific research topics
+    # Comprehensive life, health, clinical, medical, and biopharma topics
     base_topics = [
+        # --- Life Sciences & Molecular Biology ---
         "Biochemistry", "Biologist", "Biology", "Biotechnology", "Biotech",
         "Biomedical", "Bioinformatics", "Molecular Biology", "Cell Biology",
         "Genomics", "Proteomics", "Metabolomics", "Stem Cell", "Immunology",
         "Virology", "Bacteriology", "Microbiology", "Pathology", "Histology",
-        "Pharmacology", "Toxicology", "Clinical Research", "Clinical Trials",
-        "Epidemiology", "Public Health", "Medical Laboratory", "Translational Research",
-        "Therapeutics", "Preclinical", "Assay", "Formulation Scientist",
-        "Analytical Chemistry", "Biochemist", "Bioanalytical", "RNA", "DNA",
+        
+        # --- Pharmaceuticals & Biopharma ---
+        "Pharmaceutical", "Biopharmaceutical", "Biopharma", "Drug Discovery",
+        "Medicinal Chemistry", "Pharmacokinetics", "Pharmacodynamics", 
+        "Formulation Scientist", "Analytical Chemistry", "Biochemist", 
+        "Bioanalytical", "Therapeutics", "Preclinical", "Assay", 
+        "Regulatory Affairs", "Clinical Operations",
+        
+        # --- Clinical & Medical Sciences ---
+        "Clinical Science", "Medical Science", "Clinical Research", "Clinical Trials",
+        "Translational Medicine", "Pathobiology", "Neuroscience", "Physiology", 
+        "Hematology", "Oncology", "Cardiovascular Research", "Epidemiology", 
+        "Medical Laboratory", "Translational Research",
+        
+        # --- Health Sciences & Environmental ---
+        "Health Science", "Health Research", "Health Informatics", 
+        "Public Health", "Biomedical Science", "RNA", "DNA", 
         "Environmental Science", "Water Quality", "Conservation Science"
     ]
 
     # Student opportunity modifiers
-    modifiers = ["intern", "internship", "co-op"]
+    modifiers = ["intern", "internship", "co-op", "coop"]
 
     # Dynamically build explicit student queries
     search_queries = []
@@ -79,37 +93,48 @@ def main():
         for mod in modifiers:
             search_queries.append(f"{topic} {mod}")
 
-    # Target locations: All of Canada + Major California life science hubs
-    locations = [
-        "Canada",
-        "San Francisco, CA", 
-        "San Diego, CA", 
-        "Los Angeles, CA", 
-        "San Jose, CA", 
-        "Irvine, CA"
+    # Target locations: Solely focused on Canada with a 75-mile search radius on city hubs
+    search_targets = [
+        {"location": "Canada", "country": "Canada"},
+        {"location": "Vancouver, BC", "country": "Canada", "distance": 75},
+        {"location": "Victoria, BC", "country": "Canada", "distance": 75},
+        {"location": "Kelowna, BC", "country": "Canada", "distance": 75},
+        {"location": "Calgary, AB", "country": "Canada", "distance": 75},
+        {"location": "Edmonton, AB", "country": "Canada", "distance": 75},
+        {"location": "Toronto, ON", "country": "Canada", "distance": 75},
+        {"location": "Ottawa, ON", "country": "Canada", "distance": 75},
+        {"location": "Montreal, QC", "country": "Canada", "distance": 75},
+        {"location": "Quebec City, QC", "country": "Canada", "distance": 75}
     ]
 
     all_jobs = []
 
-    for query in search_queries:
-        for location in locations:
-            print(f"Searching for '{query}' in '{location}'...")
+    for target in search_targets:
+        loc_str = target["location"]
+        country_str = target["country"]
+
+        for query in search_queries:
+            print(f"Searching for '{query}' in '{loc_str}'...")
             try:
-                jobs = scrape_jobs(
-                    site_name=["indeed", "linkedin", "zip_recruiter", "glassdoor"],
-                    search_term=query,
-                    location=location,
-                    results_wanted=10,  
-                    hours_old=72,
-                    country_indeed='Canada' if location == 'Canada' else 'USA'
-                )
+                scrape_args = {
+                    "site_name": ["indeed", "linkedin", "zip_recruiter", "glassdoor"],
+                    "search_term": query,
+                    "location": loc_str,
+                    "country_indeed": country_str,
+                    "hours_old": 72,
+                    "results_wanted": 15
+                }
+                if "distance" in target:
+                    scrape_args["distance"] = target["distance"]
+
+                jobs = scrape_jobs(**scrape_args)
                 if jobs is not None and not jobs.empty:
                     all_jobs.append(jobs)
             except Exception as e:
-                print(f"Error scraping query '{query}' in '{location}': {e}")
+                print(f"Error scraping query '{query}' in '{loc_str}': {e}")
 
     if not all_jobs:
-        print("No jobs found across current search passes.")
+        print("No jobs found across current Canadian search passes.")
         return
 
     combined_jobs = pd.concat(all_jobs, ignore_index=True)
@@ -122,12 +147,13 @@ def main():
         "student", "placement", "fellow", "fellowship"
     ]
 
-    # Mandatory science domain terms to ensure it's actually life/health/medical science
+    # Mandatory science/health domain terms to ensure it's in scope
     required_science_keywords = [
         "bio", "chem", "lab", "laboratory", "research", "clinical", 
         "pharma", "genom", "molecular", "cell", "micro", "path", 
         "immun", "toxic", "data", "science", "scientific", "health", 
-        "environ", "analyst", "assay", "formulation"
+        "environ", "analyst", "assay", "formulation", "medical", "neuro",
+        "oncology", "drug", "medicine", "therapeut"
     ]
 
     # Strict blacklist to block out hardware, software, civil, mechanical, and aerospace roles
@@ -147,7 +173,7 @@ def main():
         if job_id in seen_jobs or job_id == 'nan' or not job_id:
             continue
 
-        # Check against blacklist (instantly blocks engineering/hardware/non-science roles)
+        # Check against blacklist
         if any(bad in title for bad in blacklist_terms):
             continue
 
@@ -184,7 +210,7 @@ def main():
             new_jobs_count += 1
 
     save_seen_jobs(seen_jobs)
-    print(f"=== SCRAPING COMPLETE. Sent {new_jobs_count} new filtered life science alerts across {len(company_groups)} companies. ===")
+    print(f"=== SCRAPING COMPLETE. Sent {new_jobs_count} new filtered Canadian life/medical science alerts across {len(company_groups)} companies. ===")
 
 if __name__ == "__main__":
     main()
