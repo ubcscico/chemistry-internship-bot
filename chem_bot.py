@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 from jobspy import scrape_jobs
 import pandas as pd
@@ -26,7 +27,7 @@ def send_discord_group(company, jobs_list):
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
 
-    # Build clean message matching your exact engineering format with suppressed link previews
+    # Build clean message matching your engineering format with suppressed link previews
     message_lines = [f"🏢 **{company}**"]
     
     for job in jobs_list:
@@ -37,58 +38,54 @@ def send_discord_group(company, jobs_list):
         message_lines.append(f"• **{title}** ({location})\n  🔗 <{job_url}>")
 
     payload = {"content": "\n".join(message_lines)}
-    response = requests.post(webhook_url, json=payload)
     
-    if response.status_code != 204:
-        print(f"Failed to send Discord alert: {response.status_code}, {response.text}")
+    # Send with rate-limit handling
+    while True:
+        response = requests.post(webhook_url, json=payload)
+        if response.status_code == 429:
+            retry_after = response.json().get("retry_after", 5)
+            print(f"Discord rate-limited. Retrying after {retry_after} seconds...", flush=True)
+            time.sleep(retry_after)
+        else:
+            if response.status_code != 204:
+                print(f"Failed to send Discord alert: {response.status_code}, {response.text}")
+            break
 
 def main():
-    print("=== CHEMISTRY & LIFE SCIENCES BOT INITIALIZED ===")
+    print("=== LIFE SCIENCES & HEALTH RESEARCH BOT INITIALIZED ===")
     
     seen_jobs = load_seen_jobs()
     new_jobs_count = 0
 
-    # Core scientific topics and roles
+    # Focused life sciences, health sciences, and scientific research topics
     base_topics = [
-        "Analyst", "Analytical Chemistry", "Biologist", "Biobanking", 
-        "Bio-Chemist", "Bioinformatics", "Biological", "Biology", 
-        "Biochemistry", "Cancer", "Cell", "Chemical", "Chemistry", 
-        "Clinical", "Clinical Research", "Diagnostics", "Environmental", 
-        "Field", "Formulation", "Geological", "Geoscience", "GIS", 
-        "Healthcare", "High-throughput", "Immunoassay", "Immunology", 
-        "In Vitro", "Lab", "Lab Assistant", "Laboratory", "Lipid", 
-        "Microbiology", "Molecular", "Preclinical", "Protein", "QA", 
-        "QC", "Quality Assurance", "Quality Control", "R&D", 
-        "Research and Development", "Research Assistant", "Research Associate", 
-        "Research Scientist", "RNA", "Technician", "Therapeutics", 
-        "Translational", "Veterinarian Assistant", "Veterinary", 
-        "Chemist", "Biotechnology", "Biotech", "Assay",
-        "Genomics", "Proteomics", "Metabolomics", "Stem Cell", 
-        "Histology", "Pathology", "Virology", "Bacteriology", 
-        "Toxicology", "Pharmacology", "Physiology", "Biomedical", 
-        "Clinical Trials", "Epidemiology", "Public Health", 
-        "Medical Laboratory Science", "Biostatistics", "Conservation", 
-        "Sustainability", "Water Quality", "Soil Science", "Limnology", 
-        "Marine Biology", "Hydrology", "Climate Science", "Environmental Monitoring"
+        "Biochemistry", "Biologist", "Biology", "Biotechnology", "Biotech",
+        "Biomedical", "Bioinformatics", "Molecular Biology", "Cell Biology",
+        "Genomics", "Proteomics", "Metabolomics", "Stem Cell", "Immunology",
+        "Virology", "Bacteriology", "Microbiology", "Pathology", "Histology",
+        "Pharmacology", "Toxicology", "Clinical Research", "Clinical Trials",
+        "Epidemiology", "Public Health", "Medical Laboratory", "Translational Research",
+        "Therapeutics", "Preclinical", "Assay", "Formulation Scientist",
+        "Analytical Chemistry", "Biochemist", "Bioanalytical", "RNA", "DNA",
+        "Environmental Science", "Water Quality", "Conservation Science"
     ]
 
     # Student opportunity modifiers
     modifiers = ["intern", "internship", "co-op"]
 
-    # Dynamically build explicit student queries (e.g., "Biochemistry intern", "Genomics co-op")
+    # Dynamically build explicit student queries
     search_queries = []
     for topic in base_topics:
         for mod in modifiers:
             search_queries.append(f"{topic} {mod}")
 
-    # Target locations: All of Canada + Major California hubs
+    # Target locations: All of Canada + Major California life science hubs
     locations = [
         "Canada",
         "San Francisco, CA", 
         "San Diego, CA", 
         "Los Angeles, CA", 
         "San Jose, CA", 
-        "Sacramento, CA", 
         "Irvine, CA"
     ]
 
@@ -103,7 +100,7 @@ def main():
                     search_term=query,
                     location=location,
                     results_wanted=10,  
-                    hours_old=72,  # Look at postings from the last 3 days
+                    hours_old=72,
                     country_indeed='Canada' if location == 'Canada' else 'USA'
                 )
                 if jobs is not None and not jobs.empty:
@@ -116,21 +113,29 @@ def main():
         return
 
     combined_jobs = pd.concat(all_jobs, ignore_index=True)
-    # Drop exact duplicate listings based on URL
     combined_jobs = combined_jobs.drop_duplicates(subset=['job_url'])
 
-    # Mandatory keywords: The job title MUST contain at least one of these to ensure only student/intern roles pass through
-    required_keywords = [
+    # Mandatory student/internship keywords required in title
+    required_student_keywords = [
         "intern", "internship", "interns", 
         "co-op", "coop", "cooperative", 
         "student", "placement", "fellow", "fellowship"
     ]
 
-    # Blacklist filters to keep out software, civil engineering, nursing, or senior roles
+    # Mandatory science domain terms to ensure it's actually life/health/medical science
+    required_science_keywords = [
+        "bio", "chem", "lab", "laboratory", "research", "clinical", 
+        "pharma", "genom", "molecular", "cell", "micro", "path", 
+        "immun", "toxic", "data", "science", "scientific", "health", 
+        "environ", "analyst", "assay", "formulation"
+    ]
+
+    # Strict blacklist to block out hardware, software, civil, mechanical, and aerospace roles
     blacklist_terms = [
-        "software", "full stack", "frontend", "backend", "civil", "structural", 
-        "nursing", "registered nurse", "physician", "accountant", "sales representative",
-        "senior", "manager", "director", "lead"
+        "software", "hardware", "mechanical", "electrical", "civil", "structural", 
+        "wireless", "rf", "antenna", "aerospace", "drone", "robotics", "full stack", 
+        "frontend", "backend", "devops", "nursing", "registered nurse", "physician", 
+        "accountant", "sales", "senior", "manager", "director", "lead"
     ]
 
     valid_jobs = []
@@ -142,12 +147,16 @@ def main():
         if job_id in seen_jobs or job_id == 'nan' or not job_id:
             continue
 
-        # Check against blacklist
+        # Check against blacklist (instantly blocks engineering/hardware/non-science roles)
         if any(bad in title for bad in blacklist_terms):
             continue
 
-        # Check that the title explicitly contains an internship/co-op/student keyword
-        if not any(req in title for req in required_keywords):
+        # Check that the title has a student modifier
+        if not any(req in title for req in required_student_keywords):
+            continue
+
+        # Check that the title specifically relates to science, lab, research, or health domains
+        if not any(sci in title for sci in required_science_keywords):
             continue
 
         valid_jobs.append({
@@ -175,7 +184,7 @@ def main():
             new_jobs_count += 1
 
     save_seen_jobs(seen_jobs)
-    print(f"=== SCRAPING COMPLETE. Sent {new_jobs_count} new alerts across {len(company_groups)} companies. ===")
+    print(f"=== SCRAPING COMPLETE. Sent {new_jobs_count} new filtered life science alerts across {len(company_groups)} companies. ===")
 
 if __name__ == "__main__":
     main()
