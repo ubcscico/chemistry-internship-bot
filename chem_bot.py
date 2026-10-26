@@ -27,14 +27,13 @@ def send_discord_group(company, jobs_list):
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
 
-    # Build clean message matching your engineering format with suppressed link previews
+    # Build clean message matching engineering format with suppressed link previews
     message_lines = [f"🏢 **{company}**"]
     
     for job in jobs_list:
         title = job.get('title', 'N/A')
         location = job.get('location', 'N/A')
         job_url = job.get('job_url', 'N/A')
-        # Angle brackets < > around the URL suppress the large preview embed box in Discord
         message_lines.append(f"• **{title}** ({location})\n  🔗 <{job_url}>")
 
     payload = {"content": "\n".join(message_lines)}
@@ -147,21 +146,24 @@ def main():
         "student", "placement", "fellow", "fellowship"
     ]
 
-    # Mandatory science/health domain terms to ensure it's in scope
+    # Science domain keywords (retaining 'research')
     required_science_keywords = [
         "bio", "chem", "lab", "laboratory", "research", "clinical", 
         "pharma", "genom", "molecular", "cell", "micro", "path", 
-        "immun", "toxic", "data", "science", "scientific", "health", 
-        "environ", "analyst", "assay", "formulation", "medical", "neuro",
-        "oncology", "drug", "medicine", "therapeut"
+        "immun", "toxic", "scientific", "health", 
+        "environ", "assay", "formulation", "medical", "neuro",
+        "oncology", "drug", "medicine", "therapeut", "epidemiol",
+        "pharmacokinet", "pharmacodynam", "biostatist"
     ]
 
-    # Strict blacklist to block out hardware, software, civil, mechanical, and aerospace roles
+    # Explicit blacklist to eliminate pure tech, AI/ML, engineering, and non-science roles
     blacklist_terms = [
         "software", "hardware", "mechanical", "electrical", "civil", "structural", 
         "wireless", "rf", "antenna", "aerospace", "drone", "robotics", "full stack", 
         "frontend", "backend", "devops", "nursing", "registered nurse", "physician", 
-        "accountant", "sales", "senior", "manager", "director", "lead"
+        "accountant", "sales", "senior", "manager", "director", "lead",
+        "ai", "ml", "machine learning", "artificial intelligence", "computer science",
+        "developer", "data engineer", "data scientist"
     ]
 
     valid_jobs = []
@@ -173,7 +175,7 @@ def main():
         if job_id in seen_jobs or job_id == 'nan' or not job_id:
             continue
 
-        # Check against blacklist
+        # Check against blacklist first (blocks pure tech/AI roles even if title contains "research")
         if any(bad in title for bad in blacklist_terms):
             continue
 
@@ -181,7 +183,7 @@ def main():
         if not any(req in title for req in required_student_keywords):
             continue
 
-        # Check that the title specifically relates to science, lab, research, or health domains
+        # Check that the title specifically relates to explicit life/health science domains or research
         if not any(sci in title for sci in required_science_keywords):
             continue
 
