@@ -158,7 +158,6 @@ def main():
         if job_id in seen_jobs or job_id == 'nan' or not job_id:
             continue
 
-        # Exclude reposted jobs (checks if "reposted" appears in title or description metadata)
         if "reposted" in title or "reposted" in description:
             continue
 
