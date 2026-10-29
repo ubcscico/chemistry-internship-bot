@@ -5,7 +5,6 @@ import requests
 from jobspy import scrape_jobs
 import pandas as pd
 
-# File to track seen jobs and avoid duplicate Discord alerts
 CACHE_FILE = "seen_chem_jobs.json"
 
 def load_seen_jobs():
@@ -27,9 +26,7 @@ def send_discord_group(company, jobs_list):
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
 
-    # Build clean message matching engineering format with suppressed link previews
     message_lines = [f"🏢 **{company}**"]
-    
     for job in jobs_list:
         title = job.get('title', 'N/A')
         location = job.get('location', 'N/A')
@@ -38,7 +35,6 @@ def send_discord_group(company, jobs_list):
 
     payload = {"content": "\n".join(message_lines)}
     
-    # Send with rate-limit handling
     while True:
         response = requests.post(webhook_url, json=payload)
         if response.status_code == 429:
@@ -56,43 +52,32 @@ def main():
     seen_jobs = load_seen_jobs()
     new_jobs_count = 0
 
-    # Comprehensive life, health, clinical, medical, and biopharma topics
     base_topics = [
-        # --- Life Sciences & Molecular Biology ---
         "Biochemistry", "Biologist", "Biology", "Biotechnology", "Biotech",
         "Biomedical", "Bioinformatics", "Molecular Biology", "Cell Biology",
         "Genomics", "Proteomics", "Metabolomics", "Stem Cell", "Immunology",
         "Virology", "Bacteriology", "Microbiology", "Pathology", "Histology",
-        
-        # --- Pharmaceuticals & Biopharma ---
         "Pharmaceutical", "Biopharmaceutical", "Biopharma", "Drug Discovery",
         "Medicinal Chemistry", "Pharmacokinetics", "Pharmacodynamics", 
         "Formulation Scientist", "Analytical Chemistry", "Biochemist", 
         "Bioanalytical", "Therapeutics", "Preclinical", "Assay", 
         "Regulatory Affairs", "Clinical Operations",
-        
-        # --- Clinical & Medical Sciences ---
         "Clinical Science", "Medical Science", "Clinical Research", "Clinical Trials",
         "Translational Medicine", "Pathobiology", "Neuroscience", "Physiology", 
         "Hematology", "Oncology", "Cardiovascular Research", "Epidemiology", 
         "Medical Laboratory", "Translational Research",
-        
-        # --- Health Sciences & Environmental ---
         "Health Science", "Health Research", "Health Informatics", 
         "Public Health", "Biomedical Science", "RNA", "DNA", 
         "Environmental Science", "Water Quality", "Conservation Science"
     ]
 
-    # Student opportunity modifiers
     modifiers = ["intern", "internship", "co-op", "coop"]
 
-    # Dynamically build explicit student queries
     search_queries = []
     for topic in base_topics:
         for mod in modifiers:
             search_queries.append(f"{topic} {mod}")
 
-    # Target locations: Solely focused on Canada with a 75-mile search radius on city hubs
     search_targets = [
         {"location": "Canada", "country": "Canada"},
         {"location": "Vancouver, BC", "country": "Canada", "distance": 75},
@@ -139,14 +124,12 @@ def main():
     combined_jobs = pd.concat(all_jobs, ignore_index=True)
     combined_jobs = combined_jobs.drop_duplicates(subset=['job_url'])
 
-    # Mandatory student/internship keywords required in title
     required_student_keywords = [
         "intern", "internship", "interns", 
         "co-op", "coop", "cooperative", 
         "student", "placement", "fellow", "fellowship"
     ]
 
-    # Science domain keywords (retaining 'research')
     required_science_keywords = [
         "bio", "chem", "lab", "laboratory", "research", "clinical", 
         "pharma", "genom", "molecular", "cell", "micro", "path", 
@@ -156,7 +139,6 @@ def main():
         "pharmacokinet", "pharmacodynam", "biostatist"
     ]
 
-    # Explicit blacklist to eliminate pure tech, AI/ML, engineering, and non-science roles
     blacklist_terms = [
         "software", "hardware", "mechanical", "electrical", "civil", "structural", 
         "wireless", "rf", "antenna", "aerospace", "drone", "robotics", "full stack", 
@@ -171,19 +153,21 @@ def main():
     for _, row in combined_jobs.iterrows():
         job_id = str(row.get('job_url'))
         title = str(row.get('title', '')).lower()
+        description = str(row.get('description', '')).lower()
 
         if job_id in seen_jobs or job_id == 'nan' or not job_id:
             continue
 
-        # Check against blacklist first (blocks pure tech/AI roles even if title contains "research")
+        # Exclude reposted jobs (checks if "reposted" appears in title or description metadata)
+        if "reposted" in title or "reposted" in description:
+            continue
+
         if any(bad in title for bad in blacklist_terms):
             continue
 
-        # Check that the title has a student modifier
         if not any(req in title for req in required_student_keywords):
             continue
 
-        # Check that the title specifically relates to explicit life/health science domains or research
         if not any(sci in title for sci in required_science_keywords):
             continue
 
@@ -195,7 +179,6 @@ def main():
             'job_url': row.get('job_url')
         })
 
-    # Group valid jobs by company
     company_groups = {}
     for job in valid_jobs:
         comp = job['company']
@@ -203,7 +186,6 @@ def main():
             company_groups[comp] = []
         company_groups[comp].append(job)
 
-    # Send grouped messages per company
     for company, jobs_list in company_groups.items():
         print(f"Sending grouped alert for {company} ({len(jobs_list)} roles)...")
         send_discord_group(company, jobs_list)
