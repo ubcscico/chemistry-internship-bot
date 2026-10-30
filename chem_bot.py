@@ -1,3 +1,5 @@
+print("=== PYTHON SCRIPT INITIALIZED (CHEM & LIFE SCIENCES HYBRID BOT) ===", flush=True)
+
 import os
 import json
 import time
@@ -9,16 +11,9 @@ import pandas as pd
 
 CACHE_FILE = "seen_chem_jobs.json"
 
-# -------------------------------------------------------------
-# CANADIAN LIFE SCIENCES DIRECT ATS & EMPLOYER BOARDS
-# -------------------------------------------------------------
 CHEM_GREENHOUSE_COMPANIES = [
     "abcellera"
 ]
-
-CHEM_LEVER_COMPANIES = []
-
-CHEM_ASHBY_COMPANIES = []
 
 CHEM_DIRECT_BOARDS = [
     {"name": "STEMCELL Technologies", "url": "https://www.stemcell.com/careers.html", "type": "html"},
@@ -88,31 +83,24 @@ def save_seen_jobs(seen_jobs):
     with open(CACHE_FILE, "w") as f:
         json.dump(list(seen_jobs), f)
 
-def send_discord_group(company, jobs_list):
-    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
-    if not webhook_url:
-        print("Error: DISCORD_WEBHOOK_URL is not set.")
-        return
+def send_discord_message(webhook_url, full_text):
+    chunks = []
+    if len(full_text) > 1900:
+        chunks = [full_text[i:i+1900] for i in range(0, len(full_text), 1900)]
+    else:
+        chunks = [full_text]
 
-    message_lines = [f"🏢 **{company}**"]
-    for job in jobs_list:
-        title = job.get('title', 'N/A')
-        location = job.get('location', 'N/A')
-        job_url = job.get('job_url', 'N/A')
-        message_lines.append(f"• **{title}** ({location})\n  🔗 <{job_url}>")
-
-    payload = {"content": "\n".join(message_lines)}
-    
-    while True:
-        response = requests.post(webhook_url, json=payload)
-        if response.status_code == 429:
-            retry_after = response.json().get("retry_after", 5)
-            print(f"Discord rate-limited. Retrying after {retry_after} seconds...", flush=True)
-            time.sleep(retry_after)
-        else:
-            if response.status_code != 204:
-                print(f"Failed to send Discord alert: {response.status_code}, {response.text}")
-            break
+    for chunk in chunks:
+        while True:
+            res = requests.post(webhook_url, json={"content": chunk})
+            if res.status_code == 429:
+                retry_after = res.json().get("retry_after", 5)
+                print(f"Discord rate-limited. Retrying after {retry_after} seconds...", flush=True)
+                time.sleep(retry_after)
+            else:
+                res.raise_for_status()
+                time.sleep(1)
+                break
 
 def fetch_direct_chem_employers():
     employer_jobs = []
@@ -133,7 +121,8 @@ def fetch_direct_chem_employers():
                             "title": title,
                             "company": company.capitalize(),
                             "location": location if location else "Canada",
-                            "job_url": job.get("absolute_url")
+                            "job_url": job.get("absolute_url"),
+                            "source_type": "direct"
                         })
         except Exception as e:
             print(f"Error fetching Greenhouse board for {company}: {e}", flush=True)
@@ -158,7 +147,8 @@ def fetch_direct_chem_employers():
                             "title": title,
                             "company": name,
                             "location": "Canada / Remote",
-                            "job_url": job_url
+                            "job_url": job_url,
+                            "source_type": "direct"
                         })
         except Exception as e:
             print(f"Error scraping direct board for {name}: {e}", flush=True)
@@ -168,17 +158,21 @@ def fetch_direct_chem_employers():
 def main():
     print("=== HYBRID CANADIAN LIFE & PHARMA SCIENCES BOT INITIALIZED ===")
     
-    seen_jobs = load_seen_jobs()
-    new_jobs_count = 0
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        print("❌ ERROR: DISCORD_WEBHOOK_URL environment variable is MISSING or EMPTY!", flush=True)
+        return
+
+    seen_ids = load_seen_jobs()
     all_new_jobs = []
 
-    # 1. Pull from direct Canadian life science employer boards first
+    # 1. Pull from direct Canadian life science employer boards
     direct_jobs = fetch_direct_chem_employers()
     print(f"Found {len(direct_jobs)} role(s) from direct life science employer boards.", flush=True)
     for job in direct_jobs:
-        if job["id"] not in seen_jobs and job["job_url"]:
+        if job["id"] not in seen_ids and job["job_url"]:
             all_new_jobs.append(job)
-            seen_jobs.add(job["id"])
+            seen_ids.add(job["id"])
 
     # 2. Pull from aggregators (LinkedIn, Indeed, etc.)
     print("Scraping LinkedIn and Indeed for Canadian life science co-ops...", flush=True)
@@ -196,6 +190,7 @@ def main():
         {"location": "Canada", "country": "Canada"},
         {"location": "Vancouver, BC", "country": "Canada", "distance": 75},
         {"location": "Victoria, BC", "country": "Canada", "distance": 75},
+        {"location": "Kelowna, BC", "country": "Canada", "distance": 75},
         {"location": "Calgary, AB", "country": "Canada", "distance": 75},
         {"location": "Toronto, ON", "country": "Canada", "distance": 75},
         {"location": "Ottawa, ON", "country": "Canada", "distance": 75},
@@ -229,7 +224,7 @@ def main():
                         description = str(row.get('description', '')).lower()
                         job_url = row.get('job_url', '')
 
-                        if job_id in seen_jobs or not job_id or job_id == 'nan':
+                        if job_id in seen_ids or not job_id or job_id == 'nan':
                             continue
                         if "reposted" in title.lower() or "reposted" in description:
                             continue
@@ -241,36 +236,59 @@ def main():
                                 "title": title,
                                 "company": company,
                                 "location": location,
-                                "job_url": job_url
+                                "job_url": job_url,
+                                "source_type": "aggregator"
                             })
                             seen_ids.add(job_id)
             except Exception as e:
                 print(f"Error scraping query '{query}' in '{loc_str}': {e}")
 
-    # Deduplicate by job URL
-    unique_jobs = {j['job_url']: j for j in all_new_jobs}.values()
-
-    print(f"Total un-cached new life science jobs ready to send: {len(unique_jobs)}", flush=True)
-    if not unique_jobs:
+    print(f"Total un-cached new life science jobs ready to send: {len(all_new_jobs)}", flush=True)
+    if not all_new_jobs:
         print("No new unseen life science internships found today.", flush=True)
         save_seen_jobs(seen_ids)
         return
 
-    company_groups = {}
-    for job in unique_jobs:
-        comp = job['company']
-        if comp not in company_groups:
-            company_groups[comp] = []
-        company_groups[comp].append(job)
+    # Separate into Direct vs Aggregator pools
+    direct_pool = [j for j in all_new_jobs if j.get("source_type") == "direct"]
+    agg_pool = [j for j in all_new_jobs if j.get("source_type") == "aggregator"]
 
-    for company, jobs_list in company_groups.items():
-        print(f"Sending grouped alert for {company} ({len(jobs_list)} roles)...")
-        send_discord_group(company, jobs_list)
+    # Group and sort alphabetically by company name
+    def group_and_sort(jobs_list):
+        grouped = {}
         for job in jobs_list:
-            new_jobs_count += 1
+            comp = job['company']
+            if comp not in grouped:
+                grouped[comp] = []
+            grouped[comp].append(job)
+        return sorted(grouped.items(), key=lambda x: x[0].lower())
+
+    sorted_direct_groups = group_and_sort(direct_pool)
+    sorted_agg_groups = group_and_sort(agg_pool)
+
+    message_lines = [f"**🚨 Found {len(all_new_jobs)} New Life Sciences Posting(s)!**\n"]
+
+    if sorted_direct_groups:
+        message_lines.append("📌 **--- DIRECT COMPANY WEBSITE POSTINGS ---**")
+        for company, jobs_list in sorted_direct_groups:
+            message_lines.append(f"🏢 **{company}**")
+            for job in jobs_list:
+                message_lines.append(f"  • **{job['title']}** ({job['location']})\n    🔗 <{job['job_url']}>")
+        message_lines.append("")
+
+    if sorted_agg_groups:
+        message_lines.append("🌐 **--- LINKEDIN & RELATED JOB BOARD POSTINGS ---**")
+        for company, jobs_list in sorted_agg_groups:
+            message_lines.append(f"🏢 **{company}**")
+            for job in jobs_list:
+                message_lines.append(f"  • **{job['title']}** ({job['location']})\n    🔗 <{job['job_url']}>")
+        message_lines.append("")
+
+    full_text = "\n".join(message_lines)
+    send_discord_message(webhook_url, full_text)
 
     save_seen_jobs(seen_ids)
-    print(f"=== SCRAPING COMPLETE. Sent {new_jobs_count} new alerts across {len(company_groups)} companies. ===")
+    print(f"=== SCRAPING COMPLETE. Posted {len(all_new_jobs)} alerts to Discord. ===")
 
 if __name__ == "__main__":
     main()
